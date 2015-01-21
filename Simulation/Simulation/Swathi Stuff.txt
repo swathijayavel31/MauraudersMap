@@ -1,0 +1,22 @@
+Human method
+
+public string get_state_string()
+        {
+            return "m," + id.ToString() + "," + name + "h," + lat.ToString() + "," + lng.ToString();
+        }
+
+
+
+Zombie method
+
+        public string get_state_string()
+        {
+            if (state == states.STUNNED)
+            {
+                return "m," + id.ToString() + "," + name + "s," + lat.ToString() + "," + lng.ToString();
+            }
+            else
+            {
+                return "m," + id.ToString() + "," + name + "z," + lat.ToString() + "," + lng.ToString();
+            }
+        }

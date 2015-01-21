@@ -1,0 +1,43 @@
+Add syncronization
+How it works
+	When event request occurs
+	Set state to uncertain
+	Ask other player if change is valid
+	Gather all other event requests in the meantime
+	Wait a certain amount of time for response
+	Set certain state in stone
+
+
+
+			// Determine end of game
+
+
+
+
+
+
+			Array players 
+				lat
+				lng
+				state
+				name
+				id
+
+			Array obstacles
+				id
+				name
+				state
+				List<Tuple<double,double>>
+					lat 
+					lng
+
+			Array safe_zones
+				id
+				name
+				state
+				List<Tuple<double,double>>
+					lat 
+					lng
+
+			List of addresses or what open ports
+				

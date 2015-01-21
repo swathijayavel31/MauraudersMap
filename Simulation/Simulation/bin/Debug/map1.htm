@@ -1,0 +1,357 @@
+﻿<!DOCTYPE html>
+<style type="text/css">
+    html { height: 100% }
+    body { height: 100%; margin: 0; padding: 0 }
+    #map_canvas { height: 100% }
+</style>
+<html>
+<head>
+<meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+<meta http-equiv="content-type" content="text/html; charset=UTF-8"/>
+<title>Maurader's Map</title>
+<script type="text/javascript" src="http://maps.google.com/maps/api/js?key=AIzaSyCDJZMQhNJuzIiGQFA_dD45kzMY7WsYWZ8&sensor=false"></script>
+<script type="text/javascript">
+
+
+
+    // Editable Constants
+    var XML_FILE_NAME = 'map1.xml';
+    var XML_TEST_BASE_FILE_NAME = 'mapdata';
+    var UPDATE_INVERVAL = 100;          // Number of milliseconds
+    var MAP_CENTER_LAT = 42.446350
+    var MAP_CENTER_LNG = -76.482689
+    var MAP_ZOOM_LEVEL = 16;
+    var SAFE_ZONE_FILL_OPACITY = 0.5
+    var OBSTACLE_STROKE_WEIGHT = 5
+    var HUMAN_MARKER = 'http://maps.google.com/mapfiles/ms/icons/orange-dot.png'
+    var ZOMBIE_MARKER = 'http://maps.google.com/mapfiles/ms/icons/green-dot.png'
+    var STUNNED_MARKER = 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png'
+    var DEFAULT_MARKER = 'http://maps.google.com/mapfiles/ms/icons/red-dot.png'
+
+    // Permanent Constants
+    var HUMAN = 'h'
+    var ZOMBIE = 'z'
+    var STUNNED = 's'
+    var REMOVE = 'r'
+    var ACTIVE = 'a'
+
+    // Globals
+    var infowindow;
+    var map;
+    var playerArr;
+    var safeZoneArr;
+    var obstacleArr;
+    var parser;
+    var loadIndex = 0;
+    var maxLoadIndex = 4;
+
+
+
+    function testloadXMLDoc(fileName) {
+        var fn = XML_TEST_BASE_FILE_NAME + loadIndex + '.xml'
+        var ua = navigator.userAgent;
+        var xmlDoc;
+        if (ua.match(/(msie|trident)/i) != null) {
+            // code for IE
+            xmlDoc = new ActiveXObject("Microsoft.XMLDOM");
+            xmlDoc.async = false;
+            xmlDoc.load(fn);
+        }
+        else {
+            var xhttp = new XMLHttpRequest();
+            xhttp.open("GET", fn, false);
+            xhttp.send();
+            xmlDoc = xhttp.responseXML;
+        }
+        // Update loadIndex
+        if (loadIndex >= maxLoadIndex) loadIndex = 0;
+        else loadIndex++;
+        return xmlDoc;
+    }
+
+
+
+    function loadXMLDoc(fileName) {
+        var ua = navigator.userAgent;
+        if (ua.match(/(msie|trident)/i) != null) {
+            // code for IE
+            var xmlDoc = new ActiveXObject("Microsoft.XMLDOM");
+            xmlDoc.async = false;
+            xmlDoc.load(fileName);
+            return xmlDoc;
+        }
+        else {
+            var xhttp = new XMLHttpRequest();
+            xhttp.open("GET", fileName, false);
+            xhttp.send();
+            return xhttp.responseXML;
+        }
+    }
+
+
+
+    function get_icon_string(state) {
+        switch(state) {
+            case HUMAN:
+                return HUMAN_MARKER;
+                break;
+            case ZOMBIE:
+                return ZOMBIE_MARKER;
+                break;
+            case STUNNED:
+                return STUNNED_MARKER;
+                break;
+            default:
+                return DEFAULT_MARKER;
+        }
+    }
+
+
+
+    function create_marker(mapInput, state, lat, lng) {
+        var latlng = new google.maps.LatLng(lat, lng);
+        return new google.maps.Marker({
+            position: latlng,
+            map: mapInput,
+            icon: get_icon_string(state)
+        });
+    }
+
+
+
+    function remove_marker(marker) {
+        marker.setMap(null);
+    }
+
+
+
+    function add_infowindow(idStr, name, obj) {
+        google.maps.event.addListener(obj, "click", function () {
+            if (infowindow) infowindow.close();
+            infowindow = new google.maps.InfoWindow({ content: (idStr + "_" + name) });
+            infowindow.open(map, obj);
+        });
+    }
+
+
+
+    function remove_infowindow(obj) {
+        google.maps.event.clearInstanceListeners(obj);
+    }
+
+
+
+    function update_players(xmlDoc) {
+        var players = xmlDoc.documentElement.getElementsByTagName("players");
+        for (var i = 0; i < players.length; i++) {
+            var player = players[i].getElementsByTagName("player");
+            for (var j = 0; j < player.length; j++) {
+                // Get attributes
+                var m = player[j];
+                var idStr = m.getAttribute("id");
+                var id = parseInt(idStr);
+                var name = m.getAttribute("name");
+                var state = m.getAttribute("state");
+                // Remove player if state set to remove
+                if (state == REMOVE) {
+                    if (id < playerArr.length && playerArr[id] != undefined) {
+                        remove_marker(playerArr[id]);
+                    }
+                }
+                    // Else check if player with id exists and create if not
+                else if (id >= playerArr.length || playerArr[id] == undefined) {
+                    var lat = parseFloat(m.getAttribute("lat"));
+                    var lng = parseFloat(m.getAttribute("lng"));
+                    playerArr[id] = create_marker(map, state, lat, lng);
+                    add_infowindow(idStr, name, playerArr[id]);
+                }
+                    // Otherwise update current player with that id
+                else {
+                    playerArr[id].setIcon(get_icon_string(state));
+                    if (playerArr[id].getMap() == null) playerArr[id].setMap(map);
+                    var lat = parseFloat(m.getAttribute("lat"));
+                    var lng = parseFloat(m.getAttribute("lng"));
+                    var latlng = new google.maps.LatLng(lat, lng);
+                    playerArr[id].setPosition(latlng);
+                    remove_infowindow(playerArr[id]);
+                    add_infowindow(idStr, name, playerArr[id]);
+                }
+            }
+        }
+    }
+
+
+
+    function create_safe_zone(mapInput, pointArr) {
+        return new google.maps.Polygon({
+            fillColor: 'orange',
+            fillOpacity: SAFE_ZONE_FILL_OPACITY,
+            map: mapInput,
+            paths: pointArr,
+            strokeColor: 'orange',
+        });
+    }
+
+
+
+    function remove_safe_zone(safeZone) {
+        safeZone.setMap(null);
+    }
+
+
+
+    function update_safe_zones(xmlDoc) {
+        var safeZones = xmlDoc.documentElement.getElementsByTagName("safeZones");
+        for (var i = 0; i < safeZones.length; i++) {
+            var safeZone = safeZones[i].getElementsByTagName("safeZone");
+            for (var j = 0; j < safeZone.length; j++) {
+                // Get attributes
+                var s = safeZone[j];
+                var idStr = s.getAttribute("id");
+                var id = parseInt(idStr);
+                var name = s.getAttribute("name");
+                var state = s.getAttribute("state");
+                var point = s.getElementsByTagName("point");
+                // Remove safeZone if state set to remove
+                if (state == REMOVE) {
+                    if (id < safeZoneArr.length && safeZoneArr[id] != undefined) {
+                        remove_safe_zone(safeZoneArr[id]);
+                    }
+                }
+                // Else check if safeZone with id exists and create if not
+                else if (id >= safeZoneArr.length || safeZoneArr[id] == undefined) {
+                    var pointArr = new google.maps.MVCArray();
+                    for (var k = 0; k < point.length; k++) {
+                        var p = point[k];
+                        var lat = parseFloat(p.getAttribute("lat"));
+                        var lng = parseFloat(p.getAttribute("lng"));
+                        var latlng = new google.maps.LatLng(lat, lng);
+                        pointArr.push(latlng);
+                    }
+                    safeZoneArr[id] = create_safe_zone(map, pointArr);
+                    add_infowindow(idStr, name, safeZoneArr[id]);
+                }
+                // Otherwise update current safeZone with that id
+                else {
+                    safeZoneArr[id].setMap(map);
+                    var pointArr = new google.maps.MVCArray();
+                    for (var k = 0; k < point.length; k++) {
+                        var p = point[k];
+                        var lat = parseFloat(p.getAttribute("lat"));
+                        var lng = parseFloat(p.getAttribute("lng"));
+                        var latlng = new google.maps.LatLng(lat, lng)
+                        pointArr.push(latlng);
+                    }
+                    safeZoneArr[id].setPath(pointArr);
+                    remove_infowindow(safeZoneArr[id]);
+                    add_infowindow(idStr, name, safeZoneArr[id]);
+                }
+            }
+        }
+    }
+
+
+
+    function create_obstacle(mapInput, pointArr) {
+        return new google.maps.Polyline({
+            map: mapInput,
+            path: pointArr,
+            strokeColor: 'green',
+            strokeWeight: OBSTACLE_STROKE_WEIGHT
+        });
+    }
+
+
+
+    function remove_obstacle(obstacle) {
+        obstacle.setMap(null);
+    }
+
+
+
+    function update_obstacles(xmlDoc) {
+        var obstacles = xmlDoc.documentElement.getElementsByTagName("obstacles");
+        for (var i = 0; i < obstacles.length; i++) {
+            var obstacle = obstacles[i].getElementsByTagName("obstacle");
+            for (var j = 0; j < obstacle.length; j++) {
+                // Get attributes
+                var o = obstacle[j];
+                var idStr = o.getAttribute("id");
+                var id = parseInt(idStr);
+                var name = o.getAttribute("name");
+                var state = o.getAttribute("state");
+                var point = o.getElementsByTagName("point");
+                // Remove obstacle if state set to remove
+                if (state == REMOVE) {
+                    if (id < obstacleArr.length && obstacleArr[id] != undefined) {
+                        remove_obstacle(obstacleArr[id]);
+                    }
+                }
+                // Else check if obstacle with id exists and create if not
+                else if (id >= obstacleArr.length || obstacleArr[id] == undefined) {
+                    var pointArr = new google.maps.MVCArray();
+                    for (var k = 0; k < point.length; k++) {
+                        var p = point[k];
+                        var lat = parseFloat(p.getAttribute("lat"));
+                        var lng = parseFloat(p.getAttribute("lng"));
+                        var latlng = new google.maps.LatLng(lat, lng);
+                        pointArr.push(latlng);
+                    }
+                    obstacleArr[id] = create_obstacle(map, pointArr);
+                    add_infowindow(idStr, name, obstacleArr[id]);
+                }
+                // Otherwise update current obstacle with that id
+                else {
+                    obstacleArr[id].setMap(map);
+                    var pointArr = new google.maps.MVCArray();
+                    for (var k = 0; k < point.length; k++) {
+                        var p = point[k];
+                        var lat = parseFloat(p.getAttribute("lat"));
+                        var lng = parseFloat(p.getAttribute("lng"));
+                        var latlng = new google.maps.LatLng(lat, lng)
+                        pointArr.push(latlng);
+                    }
+                    obstacleArr[id].setPath(pointArr);
+                    remove_infowindow(obstacleArr[id]);
+                    add_infowindow(idStr, name, obstacleArr[id]);
+                }
+            }
+        }
+    }
+
+
+
+    function update_map_items() {
+        var xmlDoc = loadXMLDoc(XML_FILE_NAME);
+        update_players(xmlDoc);
+        update_safe_zones(xmlDoc);
+        update_obstacles(xmlDoc);
+    }
+
+
+
+    function initialize() {
+        // Setup map
+        var myLatlng = new google.maps.LatLng(MAP_CENTER_LAT, MAP_CENTER_LNG);
+        var myOptions = {
+            zoom: MAP_ZOOM_LEVEL,
+            center: myLatlng,
+            mapTypeId: google.maps.MapTypeId.ROADMAP
+        }
+        map = new google.maps.Map(document.getElementById("map_canvas"), myOptions);
+        // Set up arrays
+        playerArr = Array();
+        safeZoneArr = Array();
+        obstacleArr = Array();
+        // Call for update to maps
+        setInterval(update_map_items, UPDATE_INVERVAL);
+    }
+
+
+
+</script>
+</head>
+<body onload="initialize()">
+    <div id="map_canvas"></div>
+</body>
+</html>
